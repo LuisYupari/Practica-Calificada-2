@@ -1,0 +1,84 @@
+name: CI/CD MercadoAcho
+
+on:
+  push:
+    branches: [main, test]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: BUILD
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # npm ci requiere package-lock.json; si no existe aún, se usa npm install
+      - name: Instalar dependencias
+        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: Compilar
+        run: npm run build
+
+  test:
+    name: TEST
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Instalar dependencias
+        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: Pruebas unitarias (Vitest)
+        run: npx vitest run --reporter=verbose --reporter=github-actions
+
+  security:
+    name: SECURITY
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Instalar dependencias
+        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: SAST - Semgrep
+        run: |
+          pip install semgrep
+          semgrep scan --config p/typescript --config p/react --config p/secrets --error
+      - name: Dependencias - npm audit (falla con vulnerabilidades altas o críticas)
+        run: npm audit --audit-level=high --omit=dev
+      - name: Secretos - Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy:
+    name: DEPLOY (Vercel)
+    needs: [build, test, security]
+    # Solo despliega en push a main (después de aprobar el PR). Los PR nunca publican en producción.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Desplegar en Vercel
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::warning::VERCEL_TOKEN no configurado en GitHub Secrets. Despliegue omitido."
+            exit 0
+          fi
+          npm install --global vercel
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
