@@ -95,3 +95,5 @@ Se ejecuta en cada push a `main`/`test` y en cada Pull Request hacia `main`. Tie
 4. **Pruebas:** abrir el job TEST y capturar el log de Vitest.
 5. **Seguridad:** abrir el job SECURITY y capturar Semgrep, npm audit y Gitleaks.
 6. **Despliegue:** URL pública de Vercel abierta en el navegador.
+
+> Rama `test`: integración validada por GitHub Actions antes de fusionar a `main`.
